@@ -1,0 +1,21 @@
+# Ignore environment variables and secrets
+.env
+src/.env
+docker/.env
+gcp-key.json
+
+# Ignore cache and compiled Python files
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Ignore database migration configs (not needed for running the API)
+src/db/alembic.ini
+
+# Ignore git and local dev folders
+.git/
+src/.gitignore
+docker/
+src/tests/
+
