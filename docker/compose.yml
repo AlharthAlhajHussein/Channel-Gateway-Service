@@ -1,0 +1,133 @@
+services:
+
+  # 1. PostgreSQL (Orchestrator Chat History) - EXISTING
+  postgres_ai:
+    image: pgvector/pgvector:0.8.2-pg18-trixie
+    container_name: postgres_ai
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${AI_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${AI_POSTGRES_PASSWORD}
+      POSTGRES_DB: ${AI_POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_ai_data:/var/lib/postgresql
+    networks:
+      - backend_private_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $AI_POSTGRES_USER -d $AI_POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # 2. RAG DB (Vector Database)
+  postgres_rag:
+    image: pgvector/pgvector:0.8.2-pg18-trixie
+    container_name: postgres_rag
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${RAG_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${RAG_POSTGRES_PASSWORD}
+      POSTGRES_DB: ${RAG_POSTGRES_DB}
+    ports:
+      - "5433:5432" # Maps laptop port 5433 to container port 5432
+    volumes:
+      - postgres_rag_data:/var/lib/postgresql # Uses a brand new volume
+    networks:
+      - backend_private_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $RAG_POSTGRES_USER -d $RAG_POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # 3. Redis (Cache)
+  redis:
+    image: redis:8.6.1-trixie
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend_private_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 4. The FastAPI Web Server
+  rag_app:
+    image: rag-engine-base:latest
+    build: 
+      context: .. # Points to the root directory where the Dockerfile is
+      dockerfile: Dockerfile
+    container_name: rag_app
+    # Run migrations first, then start the web server
+    command: >
+      sh -c "cd models && 
+             alembic upgrade head && 
+             cd .. && 
+             uvicorn main:app --host 0.0.0.0 --port 8000"
+    ports:
+      - "8000:8000"
+    env_file:
+      - ../src/.env
+    environment:
+      # Override the DB host to point to the Docker container network name
+      - db_host=postgres_rag
+      - db_port=5432
+      - redis_host=redis
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/gcp-service-account.json
+      - GOOGLE_CLOUD_PROJECT=pdf-ocr-extractor-488523
+    volumes:
+      # Mount your downloaded GCP service account key here
+      - C:\Users\harth\AppData\Roaming\gcloud\application_default_credentials.json:/app/gcp-service-account.json:ro
+    depends_on:
+      postgres_rag:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - backend_private_network
+
+  # 5. The Celery Worker
+  worker:
+    image: rag-engine-base:latest
+    container_name: rag_worker
+    command: celery -A celery_tasks.tasks worker --loglevel=info
+    env_file:
+      - ../src/.env
+    environment:
+      - db_host=postgres_rag
+      - db_port=5432
+      - redis_host=redis
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/gcp-service-account.json
+      - GOOGLE_CLOUD_PROJECT=pdf-ocr-extractor-488523
+    volumes:
+      - C:\Users\harth\AppData\Roaming\gcloud\application_default_credentials.json:/app/gcp-service-account.json:ro
+    depends_on:
+      postgres_rag:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rag_app:                    
+        condition: service_started
+    networks:
+      - backend_private_network
+
+volumes:
+  postgres_ai_data:
+  postgres_rag_data:
+  redis_data:
+
+networks:
+  backend_private_network:
+    driver: bridge
+    
