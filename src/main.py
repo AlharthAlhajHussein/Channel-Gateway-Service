@@ -2,9 +2,10 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from services.redis_client import init_redis, close_redis
 from services.core_platform_api_client import init_http_client, close_http_client
-# from routers.pubsub import pubsub_router
+from routers.pubsub import pubsub_router
 from routers.base import base_router
 from routers.whatsapp import whatsapp_router
+from routers.telegram import telegram_router
 import logging
 
 logger = logging.getLogger("uvicorn.error")
@@ -39,4 +40,5 @@ app = FastAPI(
 
 app.include_router(base_router)
 app.include_router(whatsapp_router)
-# app.include_router(pubsub_router)
+app.include_router(telegram_router)
+app.include_router(pubsub_router)
