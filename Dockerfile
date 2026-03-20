@@ -21,8 +21,8 @@ COPY src/ .
 ENV PYTHONPATH=/app
 
 # 8. Expose the port that Cloud Run expects
-EXPOSE 8000
+EXPOSE 8002
 
 # 9. Start the FastAPI server using Uvicorn
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8002"]
 
