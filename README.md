@@ -18,7 +18,7 @@ conda activate channel-gateway-env
 
 ```bash
 cd src
-uv pip install -r reuirements.txt
+uv pip install -r requirements.txt
 ```
 
 ## START APP
