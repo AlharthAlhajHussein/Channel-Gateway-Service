@@ -32,7 +32,7 @@ async def handle_outbound_pubsub_push(request: PubSubPushRequest):
 
         # 3. Credential Hydration (Fetch from Redis/Core API)
         # Note: Your Core API needs to return the specific tokens and WhatsApp phone ID
-        creds = await lookup_agent_routing_data(outgoing_msg.platform, outgoing_msg["sender_info"]["id"])
+        creds = await lookup_agent_routing_data(outgoing_msg.platform, outgoing_msg.sender_info["username"])
         
         # 4. Platform Dispatcher
         if outgoing_msg.platform == PlatformType.TELEGRAM:

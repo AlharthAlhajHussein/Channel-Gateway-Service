@@ -9,7 +9,7 @@ async def send_telegram_message(message: OutgoingMessage, bot_token: str):
     """Sends a message to the Telegram Bot API."""
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     payload = {
-        "chat_id": message['sender_info']['id'],
+        "chat_id": message.sender_info['id'],
         "text": message.response_text
     }
 
