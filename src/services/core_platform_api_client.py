@@ -37,7 +37,7 @@ async def lookup_agent_routing_data(platform: str, receiver_identifier: str) -> 
     # 1. Try Cache First (Microsecond response time)
     cached_data = await redis_client.get(cache_key)
     if cached_data:
-        logger.debug(f"Cache HIT for {platform} identifier: {receiver_identifier}")
+        logger.info(f"Cache HIT for {platform} identifier: {receiver_identifier}")
         return json.loads(cached_data)
 
     # 2. Cache Miss: Ask Core Platform to translate identifier -> agent_id + tokens
