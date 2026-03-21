@@ -3,26 +3,31 @@ import logging
 logger = logging.getLogger("uvicorn.error")
 
 def parse_telegram_payload(payload: dict) -> dict | None:
-    """
-    Extracts sender and text from Telegram JSON.
-    Gracefully ignores edits, channel posts, and non-text media (stickers, photos).
-    """
-    # Telegram standard messages live inside the "message" key
+    """Extracts text or voice file IDs from Telegram JSON."""
     if "message" not in payload:
-        logger.debug("[Telegram] Ignored non-message update (e.g., edited message or callback query).")
         return None
         
     msg = payload["message"]
     
-    # We only process text messages currently
-    if "text" not in msg:
-        logger.debug("[Telegram] Ignored non-text message (e.g., photo, sticker, voice).")
-        return None
+    # CASE 1: Standard Text Message
+    if "text" in msg:
+        return {
+            "sender_info": msg["chat"], 
+            "text": msg["text"], 
+            "media_id": None
+        }
         
-    return {
-        "sender_info": msg["chat"],
-        "text": msg["text"]
-    }
+    # CASE 2: Voice Note
+    elif "voice" in msg:
+        return {
+            "sender_info": msg["chat"], 
+            "text": None, 
+            "media_id": msg["voice"]["file_id"] # Telegram's internal ID for the audio file
+        }
+        
+    # Ignore stickers, photos, videos, etc.
+    logger.debug("[Telegram] Ignored unsupported media type.")
+    return None
 
 def     parse_whatsapp_payload(payload: dict) -> dict | None:
     """

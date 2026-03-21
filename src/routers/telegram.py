@@ -8,6 +8,7 @@ from models.in_out_messages import IncomingMessage, PlatformType
 from services.normalizers import parse_telegram_payload
 from services.core_platform_api_client import lookup_agent_routing_data
 from services.pubsub_publisher import publish_incoming_message
+from services.voice_processor import get_telegram_audio_bytes, transcribe_audio_to_text
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -40,14 +41,36 @@ async def receive_telegram_message(
     try:
         routing_data = await lookup_agent_routing_data(
             platform=PlatformType.TELEGRAM, 
-            receiver_identifier=identifier
+            receiver_identifier=parsed_data["sender_info"]["username"]
         )
     except HTTPException:
         # If the bot isn't registered in our DB, we drop the message safely
         logger.warning(f"Message received for unregistered bot: {identifier}")
         return Response(status_code=200)
 
-    # 4. Standardize into the Pydantic Model
+    # 4. === NEW VOICE PROCESSING LOGIC ===
+    if parsed_data["text"] is None and parsed_data["media_id"] is not None:
+        logger.info(f"[Telegram] Voice note received. Extracting audio...")
+        bot_token = routing_data.get("telegram_token")
+        
+        try:
+            # Download and transcribe
+            audio_bytes = await get_telegram_audio_bytes(parsed_data["media_id"], bot_token)
+            transcribed_text = await transcribe_audio_to_text(audio_bytes)
+            
+            if not transcribed_text:
+                logger.warning("[Telegram] Voice note was empty or unintelligible.")
+                return Response(status_code=200) # Drop gracefully
+                
+            # Replace the 'None' text with our beautiful new transcription!
+            parsed_data["text"] = transcribed_text
+            logger.info(f"[STT Success] Transcribed: '{transcribed_text}'")
+            
+        except Exception as e:
+            logger.error(f"[Telegram] Audio pipeline failed: {e}")
+            return Response(status_code=200) # ALWAYS return 200 so Telegram doesn't infinite loop
+
+    # 5. Standardize into the Pydantic Model
     incoming_msg = IncomingMessage(
         platform=PlatformType.TELEGRAM,
         sender_info=parsed_data["sender_info"],
