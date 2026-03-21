@@ -10,6 +10,7 @@ from models.in_out_messages import IncomingMessage, PlatformType
 from services.normalizers import parse_whatsapp_payload
 from services.core_platform_api_client import lookup_agent_routing_data
 from services.pubsub_publisher import publish_incoming_message # Assuming this is your publisher filename
+from services.voice_processor import get_whatsapp_audio_bytes, transcribe_audio_to_text
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -38,11 +39,8 @@ async def receive_whatsapp_message(
     request: Request,
     x_hub_signature_256: str = Header(None)
 ):
-    """Receives secure messages from Meta, normalizes them, and publishes to Pub/Sub."""
-    
-    # 1. Security Check (Phase 2 logic)
+    # 1. Security Check
     if not x_hub_signature_256:
-        logger.error("[WhatsApp] Missing X-Hub-Signature-256 header.")
         raise HTTPException(status_code=401, detail="Missing signature header")
 
     raw_body = await request.body()
@@ -55,20 +53,16 @@ async def receive_whatsapp_message(
     expected_signature_header = f"sha256={expected_signature}"
 
     if not hmac.compare_digest(expected_signature_header, x_hub_signature_256):
-        logger.error("[WhatsApp] Cryptographic signature mismatch! Possible spoofing attempt.")
         raise HTTPException(status_code=403, detail="Invalid payload signature")
 
-    # Decode the already-read raw_body to JSON safely
     payload = json.loads(raw_body.decode("utf-8"))
 
     # 2. Normalize and Filter
     parsed_data = parse_whatsapp_payload(payload)
     if not parsed_data:
-        # Edge Case Handled: It was a read receipt, delivery status, or unsupported media.
-        # We MUST return 200 OK so Meta knows we received it and doesn't retry.
         return Response(status_code=200)
 
-    # 3. Lookup Real Agent ID from Core Platform
+    # 3. Lookup Real Agent ID & Credentials from Core Platform
     receiver_identifier = parsed_data["receiver_identifier"]
     try:
         routing_data = await lookup_agent_routing_data(
@@ -77,28 +71,51 @@ async def receive_whatsapp_message(
         )
         real_agent_id = routing_data["agent_id"]
     except HTTPException:
-        # Edge Case Handled: Meta sent a message to a phone number not registered in our DB.
-        # Drop the message safely but return 200 OK to Meta.
         logger.warning(f"[WhatsApp] Message received for unregistered phone ID: {receiver_identifier}")
         return Response(status_code=200)
 
-    # 4. Standardize into the Pydantic Model
+    # 4. === NEW VOICE PROCESSING LOGIC ===
+    if parsed_data["text"] is None and parsed_data["media_id"] is not None:
+        logger.info(f"[WhatsApp] Voice note received. Extracting audio...")
+        access_token = routing_data.get("whatsapp_token")
+        
+        if not access_token:
+            logger.error(f"[WhatsApp] Missing access token for agent {real_agent_id}")
+            return Response(status_code=200)
+
+        try:
+            # Download via Meta Graph and transcribe via GCP Speech
+            audio_bytes = await get_whatsapp_audio_bytes(parsed_data["media_id"], access_token)
+            transcribed_text = await transcribe_audio_to_text(audio_bytes)
+            
+            if not transcribed_text:
+                logger.warning("[WhatsApp] Voice note was empty or unintelligible.")
+                return Response(status_code=200) # Drop gracefully
+                
+            # Replace the 'None' text with our transcription
+            parsed_data["text"] = transcribed_text
+            logger.info(f"[STT Success] Transcribed: '{transcribed_text}'")
+            
+        except Exception as e:
+            logger.error(f"[WhatsApp] Audio pipeline failed: {e}")
+            return Response(status_code=200) # ALWAYS return 200 so Meta doesn't infinite loop
+
+    # 5. Standardize into the Pydantic Model
     incoming_msg = IncomingMessage(
         platform=PlatformType.WHATSAPP,
-        sender_info=parsed_data["sender_id"],
+        sender_id=parsed_data["sender_id"],
         destination_agent_id=real_agent_id,
         text=parsed_data["text"]
     )
-    logger.info(f"[Normalized] {incoming_msg.platform.value} msg from {incoming_msg.sender_info} to Agent {incoming_msg.destination_agent_id}")
+    logger.info(f"[Normalized] {incoming_msg.platform.value} msg from {incoming_msg.sender_id} to Agent {incoming_msg.destination_agent_id}")
 
-    # 5. Publish to GCP Pub/Sub
+    # 6. Publish to GCP Pub/Sub (with ordering keys from the previous phase!)
     try:
         await publish_incoming_message(incoming_msg)
     except Exception as e:
         logger.error(f"[WhatsApp] Failed to publish to Pub/Sub: {e}")
-        # Edge Case Handled: If our internal queue is down, we return 500.
-        # Meta will see the 500 and safely hold onto the message to retry delivering it later!
+        # Return 500 only if queue is down, allowing Meta to safely retry
         raise HTTPException(status_code=500, detail="Internal queue error")
 
-    # 6. Success! Return 200 OK
+    # 7. Success! Return 200 OK
     return Response(status_code=200)

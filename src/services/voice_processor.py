@@ -50,3 +50,21 @@ async def transcribe_audio_to_text(audio_bytes: bytes) -> str | None:
     except Exception as e:
         logger.error(f"[STT Error] Google Cloud Speech failed: {e}")
         return None
+
+async def get_whatsapp_audio_bytes(media_id: str, access_token: str) -> bytes:
+    """Downloads the raw audio bytes securely from Meta's Graph API."""
+    headers = {"Authorization": f"Bearer {access_token}"}
+    
+    async with httpx.AsyncClient() as client:
+        # 1. Ask Meta for the secure CDN URL for this specific media ID
+        url_req = f"https://graph.facebook.com/v19.0/{media_id}"
+        url_res = await client.get(url_req, headers=headers)
+        url_res.raise_for_status()
+        media_url = url_res.json()["url"]
+
+        # 2. Download the actual audio file from the CDN
+        # Meta STRICTLY requires the Bearer token on this download request too
+        audio_res = await client.get(media_url, headers=headers)
+        audio_res.raise_for_status()
+        
+        return audio_res.content

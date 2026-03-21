@@ -29,10 +29,10 @@ def parse_telegram_payload(payload: dict) -> dict | None:
     logger.debug("[Telegram] Ignored unsupported media type.")
     return None
 
-def     parse_whatsapp_payload(payload: dict) -> dict | None:
+def parse_whatsapp_payload(payload: dict) -> dict | None:
     """
-    Extracts sender, text, and receiver_id from WhatsApp JSON.
-    Gracefully ignores status updates (sent, delivered, read) and non-text media.
+    Extracts sender, text, media_id, and receiver_id from WhatsApp JSON.
+    Gracefully ignores status updates (sent, delivered, read) and non-audio media.
     """
     try:
         # WhatsApp payloads are deeply nested arrays
@@ -46,16 +46,33 @@ def     parse_whatsapp_payload(payload: dict) -> dict | None:
             return None
             
         msg = value["messages"][0]
+        msg_type = msg.get("type")
+        receiver_id = value.get("metadata", {}).get("phone_number_id")
         
-        if msg.get("type") != "text":
-            logger.debug(f"[WhatsApp] Ignored non-text message of type: {msg.get('type')}.")
+        # CASE 1: Standard Text Message
+        if msg_type == "text":
+            return {
+                "sender_id": msg["from"],
+                "text": msg["text"]["body"],
+                "media_id": None,
+                "receiver_identifier": receiver_id
+            }
+            
+        # CASE 2: Voice Note (WhatsApp uses 'audio' or 'voice' interchangeably)
+        elif msg_type in ["audio", "voice"]:
+            # Fallback safely depending on how Meta formats it
+            media_obj = msg.get("audio") or msg.get("voice", {})
+            return {
+                "sender_id": msg["from"],
+                "text": None,
+                "media_id": media_obj.get("id"),
+                "receiver_identifier": receiver_id
+            }
+            
+        else:
+            logger.debug(f"[WhatsApp] Ignored unsupported media type: {msg_type}")
             return None
             
-        return {
-            "sender_id": msg["from"],
-            "text": msg["text"]["body"],
-            "receiver_identifier": value.get("metadata", {}).get("phone_number_id")
-        }
     except (IndexError, KeyError, TypeError) as e:
         logger.error(f"[WhatsApp] Failed to parse payload structure: {e}")
         return None
