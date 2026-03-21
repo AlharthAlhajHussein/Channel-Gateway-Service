@@ -7,7 +7,10 @@ from models.in_out_messages import IncomingMessage
 logger = logging.getLogger("uvicorn.error")
 
 # Initialize the GCP Publisher Client
-publisher = pubsub_v1.PublisherClient()
+# 1. CRITICAL: You must explicitly enable message ordering in the publisher options
+publisher_options = pubsub_v1.types.PublisherOptions(enable_message_ordering=True)
+publisher = pubsub_v1.PublisherClient(publisher_options=publisher_options)
+
 topic_path = publisher.topic_path(settings.gcp_project_id, "incoming_messages")
 
 async def publish_incoming_message(message: IncomingMessage):
@@ -16,11 +19,18 @@ async def publish_incoming_message(message: IncomingMessage):
         # Convert Pydantic model to JSON string, then encode to bytes
         data_bytes = message.model_dump_json().encode("utf-8")
         
-        # Publish asynchronously
-        future = publisher.publish(topic_path, data=data_bytes)
+        # 2. Create a unique ordering key for this specific user-to-agent chat
+        chat_ordering_key = f"{message.platform.value}:{message.sender_info["id"]}:{message.destination_agent_id}"
+        
+        # 3. Pass the ordering_key to the publish method
+        future = publisher.publish(
+            topic_path, 
+            data=data_bytes, 
+            ordering_key=chat_ordering_key  # <-- THIS IS THE MAGIC
+        )
         message_id = await asyncio.wrap_future(future)
         
-        logger.info(f"[Pub/Sub] Successfully published IncomingMessage. Msg ID: {message_id}")
+        logger.info(f"[Pub/Sub] published IncomingMessage ordered. Msg ID: {message_id} with key: {chat_ordering_key}")
         return message_id
     except Exception as e:
         logger.error(f"[Pub/Sub] Failed to publish message: {e}")
