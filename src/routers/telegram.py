@@ -101,8 +101,8 @@ async def receive_telegram_message(
 
     # 5. Publish to GCP Pub/Sub
     try:
-        # await publish_incoming_message(incoming_msg)
-        logger.info(f"[PUBLISH] Final Output: {incoming_msg}")
+        await publish_incoming_message(incoming_msg)
+        # logger.info(f"[PUBLISH] Final Output: {incoming_msg}")
     except Exception:
         # If Pub/Sub is down, return a 500. 
         # Telegram will see the 500 and hold onto the message to retry it later!
