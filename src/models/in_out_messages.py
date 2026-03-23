@@ -6,11 +6,20 @@ class PlatformType(str, Enum):
     WHATSAPP = "whatsapp"
     TELEGRAM = "telegram"
 
+class MessageType(str, Enum):
+    TEXT = "text"
+    IMAGE = "image"
+    TEXT_AND_IMAGE = "text_and_image"
+    VOICE = "voice"
+    DOCUMENT = "document"
+
 class IncomingMessage(BaseModel):
     platform: PlatformType
     sender_info: dict = Field(..., description="The phone number or user ID of the sender of the message note it should be uniqu on it's platform")
     destination_agent_id: str = Field(..., description="The ID of the AI agent handling this message")
-    text: str = Field(..., description="The actual message content from the user")
+    text: str | None = Field(default=None, description="The actual message content from the user or the caption for an image")
+    message_type: MessageType = Field(default=MessageType.TEXT, description="Type of the incoming message")
+    media_url: str | None = Field(default=None, description="The GCP Cloud Storage URL if the message contains media")
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class OutgoingMessage(BaseModel):
