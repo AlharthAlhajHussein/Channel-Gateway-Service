@@ -43,13 +43,14 @@ async def lookup_agent_routing_data(platform: str, receiver_identifier: str) -> 
     # 2. Cache Miss: Ask Core Platform to translate identifier -> agent_id + tokens
     logger.info(f"Cache MISS. Fetching routing data for {platform} identifier: {receiver_identifier}")
     try:
+        #TODO
         # response = await http_client.get(
         #     "/internal/agents/lookup",
         #     params={"platform": platform, "identifier": receiver_identifier}
         # )
         # response.raise_for_status()
         # routing_data = response.json()
-        routing_data = {"agent_id": "agent-1", "platform": "telegram", "telegram_token": settings.telegram_bot_token, "telegram_identifier": settings.telegram_bot_identifier}
+        routing_data = {"company_id": "Alhaj_Hussein", "agent_id": "agent-1", "platform": "telegram", "telegram_token": settings.telegram_bot_token, "telegram_identifier": settings.telegram_bot_identifier}
         # 3. Store in Cache (TTL of 1 hour)
         await redis_client.setex(cache_key, 3600, json.dumps(routing_data))
         return routing_data
