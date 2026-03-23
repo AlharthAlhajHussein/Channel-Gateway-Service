@@ -1,5 +1,7 @@
 import hmac
 import logging
+import uuid
+from datetime import datetime, timezone
 from fastapi import APIRouter, Request, Header, HTTPException, Response
 from helpers.config import settings
 from models.in_out_messages import IncomingMessage, PlatformType
@@ -8,7 +10,7 @@ from models.in_out_messages import IncomingMessage, PlatformType
 from services.normalizers import parse_telegram_payload
 from services.core_platform_api_client import lookup_agent_routing_data
 from services.pubsub_publisher import publish_incoming_message
-from services.voice_processor import get_telegram_audio_bytes, transcribe_audio_to_text
+from services.media_handler import get_telegram_media_bytes, upload_media_to_gcs
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -48,26 +50,42 @@ async def receive_telegram_message(
         logger.warning(f"Message received for unregistered bot: {identifier}")
         return Response(status_code=200)
 
-    # 4. === NEW VOICE PROCESSING LOGIC ===
-    if parsed_data["text"] is None and parsed_data["media_id"] is not None:
-        logger.info(f"[Telegram] Voice note received. Extracting audio...")
+    # 4. === MULTIMODAL ROUTING & GCS UPLOAD ===
+    message_type = parsed_data.get("message_type", "text")
+    media_url = None
+    
+    # Handle Images and Voices. (Assumes parse_telegram_payload now outputs `message_type` properly)
+    # We execute this pipeline if media_id exists.
+    if message_type in ["image", "voice", "text_and_image"] and parsed_data.get("media_id"):
+        logger.info(f"[Telegram] {message_type} received. Processing media...")
         bot_token = routing_data.get("telegram_token")
         
         try:
-            # Download and transcribe
-            audio_bytes = await get_telegram_audio_bytes(parsed_data["media_id"], bot_token)
-            transcribed_text = await transcribe_audio_to_text(audio_bytes)
+            # 1. Stream raw bytes from Telegram
+            media_bytes, mime_type = await get_telegram_media_bytes(parsed_data["media_id"], bot_token)
             
-            if not transcribed_text:
-                logger.warning("[Telegram] Voice note was empty or unintelligible.")
-                return Response(status_code=200) # Drop gracefully
-                
-            # Replace the 'None' text with our beautiful new transcription!
-            parsed_data["text"] = transcribed_text
-            logger.info(f"[STT Success] Transcribed: '{transcribed_text}'")
+            # 2. Safely determine file extension and force correct MIME type based on our message_type
+            if message_type == "voice":
+                file_ext = "ogg"
+                if mime_type == "application/octet-stream":
+                    mime_type = "audio/ogg"
+            else:
+                file_ext = "jpg"
+                if mime_type == "application/octet-stream":
+                    mime_type = "image/jpeg"
+                    
+            # 3. Generate an absolutely unique filename to prevent collisions
+            unique_filename = f"{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}.{file_ext}"
+            
+            # 4. Enforce exact inbound-media path
+            gcs_path = f"inbound-media/{routing_data.get('company_id', 'unknown_company')}/{routing_data['agent_id']}/{unique_filename}"
+            
+            # 5. Stream to Cloud Storage
+            media_url = await upload_media_to_gcs(media_bytes, gcs_path, mime_type)
+            logger.info(f"[GCS Upload Success] Saved to: {media_url}")
             
         except Exception as e:
-            logger.error(f"[Telegram] Audio pipeline failed: {e}")
+            logger.error(f"[Telegram] Media pipeline failed: {e}")
             return Response(status_code=200) # ALWAYS return 200 so Telegram doesn't infinite loop
 
     # 5. Standardize into the Pydantic Model
@@ -75,13 +93,16 @@ async def receive_telegram_message(
         platform=PlatformType.TELEGRAM,
         sender_info=parsed_data["sender_info"],
         destination_agent_id=routing_data["agent_id"],
-        text=parsed_data["text"]
+        text=parsed_data.get("text"),
+        message_type=message_type,
+        media_url=media_url
     )
     logger.info(f"[Normalized] {incoming_msg.platform.value} msg from: {incoming_msg.sender_info} to Agent Id: {incoming_msg.destination_agent_id}")
 
     # 5. Publish to GCP Pub/Sub
     try:
-        await publish_incoming_message(incoming_msg)
+        # await publish_incoming_message(incoming_msg)
+        logger.info(f"[PUBLISH] Final Output: {incoming_msg}")
     except Exception:
         # If Pub/Sub is down, return a 500. 
         # Telegram will see the 500 and hold onto the message to retry it later!
