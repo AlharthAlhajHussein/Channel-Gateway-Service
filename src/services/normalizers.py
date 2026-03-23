@@ -14,7 +14,8 @@ def parse_telegram_payload(payload: dict) -> dict | None:
         return {
             "sender_info": msg["chat"], 
             "text": msg["text"], 
-            "media_id": None
+            "media_id": None,
+            "message_type": "text"
         }
         
     # CASE 2: Voice Note
@@ -22,7 +23,21 @@ def parse_telegram_payload(payload: dict) -> dict | None:
         return {
             "sender_info": msg["chat"], 
             "text": None, 
-            "media_id": msg["voice"]["file_id"] # Telegram's internal ID for the audio file
+            "media_id": msg["voice"]["file_id"], # Telegram's internal ID for the audio file
+            "message_type": "voice"
+        }
+        
+    # CASE 3: Photo (Image)
+    elif "photo" in msg:
+        # Telegram sends multiple sizes, the last one is the highest resolution
+        media_id = msg["photo"][-1]["file_id"]
+        caption = msg.get("caption")
+        
+        return {
+            "sender_info": msg["chat"],
+            "text": caption,
+            "media_id": media_id,
+            "message_type": "text_and_image" if caption else "image"
         }
         
     # Ignore stickers, photos, videos, etc.
@@ -55,7 +70,8 @@ def parse_whatsapp_payload(payload: dict) -> dict | None:
                 "sender_id": msg["from"],
                 "text": msg["text"]["body"],
                 "media_id": None,
-                "receiver_identifier": receiver_id
+                "receiver_identifier": receiver_id,
+                "message_type": "text"
             }
             
         # CASE 2: Voice Note (WhatsApp uses 'audio' or 'voice' interchangeably)
@@ -66,7 +82,19 @@ def parse_whatsapp_payload(payload: dict) -> dict | None:
                 "sender_id": msg["from"],
                 "text": None,
                 "media_id": media_obj.get("id"),
-                "receiver_identifier": receiver_id
+                "receiver_identifier": receiver_id,
+                "message_type": "voice"
+            }
+            
+        # CASE 3: Image
+        elif msg_type == "image":
+            caption = msg.get("image", {}).get("caption")
+            return {
+                "sender_id": msg["from"],
+                "text": caption,
+                "media_id": msg["image"].get("id"),
+                "receiver_identifier": receiver_id,
+                "message_type": "text_and_image" if caption else "image"
             }
             
         else:
