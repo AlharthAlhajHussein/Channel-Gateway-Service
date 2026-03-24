@@ -1,16 +1,30 @@
-# Channel-Gateway SERVICE
+# Channel-Gateway-Service
 
-## SET UP ENV
+Welcome to the highly-available "front door" and universal adapter of the Agents Platform. This service handles webhooks from platforms like WhatsApp and Telegram, processes media, and securely queues them for the AI Orchestrator.
 
-### Create conda env
+For a deep dive into the architecture, edge cases, and tech stack, please read the [SERVICE_DOCUMENTATION.md](./SERVICE_DOCUMENTATION.md).
 
+---
+
+## Prerequisites
+- **Python 3.13** (via Conda recommended)
+- **Docker & Docker Compose** (for Redis)
+- **UV** package manager
+- **API Keys & Credentials**: GCP Service Account (for Cloud Storage/PubSub), Telegram Bot Token/Secret, Meta WhatsApp Token.
+
+---
+
+## Setup & Installation (Manual Development Mode)
+
+### 1. Set up Environment Configuration
+Create a `.env` file in the root directory by copying the example template. Configure your Redis, GCP, and Webhook credentials.
 ```bash
-conda create -n channel-gateway-env python=3.13 uv -c conda-forge
+cp .env.example .env
 ```
 
-### Activate conda env
-
+### 2. Create and Activate Conda Environment
 ```bash
+conda create -n channel-gateway-env python=3.13 uv -c conda-forge
 conda activate channel-gateway-env
 ```
 
