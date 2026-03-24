@@ -35,6 +35,12 @@ cd src
 uv pip install -r requirements.txt
 ```
 
+### Run redis using docker
+create your own compose file for redis and run
+```bash
+docker compose up redis
+```
+
 ## START APP
 
 ```bash
