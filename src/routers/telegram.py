@@ -26,7 +26,7 @@ async def receive_telegram_message(
     x_telegram_bot_api_secret_token: str = Header(None) 
 ):
     # 1. Security Check (Phase 2)
-    if not x_telegram_bot_api_secret_token or not hmac.compare_digest(x_telegram_bot_api_secret_token, settings.telegram_secret_token):
+    if not x_telegram_bot_api_secret_token or not hmac.compare_digest(x_telegram_bot_api_secret_token, settings.telegram_webhook_secret):
         raise HTTPException(status_code=403, detail="Invalid secret token")
 
     payload = await request.json()
@@ -37,13 +37,14 @@ async def receive_telegram_message(
         # It was an image, an edit, or unsupported. 
         # Return 200 OK immediately so Telegram drops it and doesn't retry.
         return Response(status_code=200)
-
+    parsed_data['sender_info']['bot_identifier'] = identifier
+    
     # 3. Lookup Real Agent ID from Core Platform (Phase 1 logic)
     # We use the 'identifier' from the URL (the Telegram Bot ID)
     try:
         routing_data = await lookup_agent_routing_data(
             platform=PlatformType.TELEGRAM, 
-            receiver_identifier=parsed_data["sender_info"]["username"]
+            receiver_identifier=identifier
         )
     except HTTPException:
         # If the bot isn't registered in our DB, we drop the message safely

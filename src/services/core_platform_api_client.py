@@ -3,6 +3,7 @@ import json
 import logging
 from fastapi import HTTPException
 from helpers import settings
+from models.in_out_messages import PlatformType
 from .redis_client import get_redis
 
 logger = logging.getLogger("uvicorn.error")
@@ -16,7 +17,7 @@ def init_http_client():
         base_url=settings.core_platform_api_url,
         # Using the internal secret we discussed earlier
         headers={"X-Internal-Secret": settings.core_platform_api_key},
-        timeout=5.0
+        timeout=10.0
     )
 
 async def close_http_client():
@@ -32,7 +33,7 @@ async def lookup_agent_routing_data(platform: str, receiver_identifier: str) -> 
     redis_client = await get_redis()
     
     # Cache key is now based on what we know from the webhook
-    cache_key = f"route:{platform}:{receiver_identifier}"
+    cache_key = f"agent_config:{platform}:{receiver_identifier}"
 
     # 1. Try Cache First (Microsecond response time)
     cached_data = await redis_client.get(cache_key)
@@ -43,21 +44,41 @@ async def lookup_agent_routing_data(platform: str, receiver_identifier: str) -> 
     # 2. Cache Miss: Ask Core Platform to translate identifier -> agent_id + tokens
     logger.info(f"Cache MISS. Fetching routing data for {platform} identifier: {receiver_identifier}")
     try:
-        #TODO
-        # response = await http_client.get(
-        #     "/internal/agents/lookup",
-        #     params={"platform": platform, "identifier": receiver_identifier}
-        # )
-        # response.raise_for_status()
-        # routing_data = response.json()
-        routing_data = {"company_id": "Alhaj_Hussein", "agent_id": "agent-1", "platform": "telegram", "telegram_token": settings.telegram_bot_token, "telegram_identifier": settings.telegram_bot_identifier}
+        params = {}
+        if platform == PlatformType.TELEGRAM:
+            params["telegram_bot_username"] = receiver_identifier
+        elif platform == PlatformType.WHATSAPP:
+            params["whatsapp_number"] = receiver_identifier
+        else:
+            raise ValueError(f"Unsupported platform: {platform}")
+
+        response = await http_client.get(
+            "/internal/agents/config",
+            params=params
+        )
+        
+        if response.status_code == 404:
+            raise HTTPException(status_code=404, detail="No agent linked to this identifier")
+            
+        response.raise_for_status()
+        data = response.json()
+        
+        routing_data = {
+            "company_id": str(data.get("company_id")),
+            "agent_id": str(data.get("id")),
+            "platform": platform,
+            "telegram_token": data.get("telegram_token"),
+            "whatsapp_token": data.get("whatsapp_token"),
+            "rag_container_id": data.get("rag_container_id")
+        }
         # 3. Store in Cache (TTL of 1 hour)
-        await redis_client.setex(cache_key, 3600, json.dumps(routing_data))
+        await redis_client.setex(cache_key, 600, json.dumps(routing_data))
         return routing_data
 
+    except HTTPException:
+        raise
     except httpx.HTTPStatusError as e:
         logger.error(f"Routing lookup failed for {receiver_identifier}. Status: {e.response.status_code}")
-        # If the number isn't in our DB, return 404 so we can drop the message
         raise HTTPException(status_code=404, detail="No agent linked to this identifier")
     except Exception as e:
         logger.error(f"Core API connection error during lookup: {e}")

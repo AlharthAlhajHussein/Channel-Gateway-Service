@@ -62,7 +62,8 @@ def parse_whatsapp_payload(payload: dict) -> dict | None:
             
         msg = value["messages"][0]
         msg_type = msg.get("type")
-        receiver_id = value.get("metadata", {}).get("phone_number_id")
+        # Prefer the display phone number since that's what is saved in the Core DB
+        receiver_id = value.get("metadata", {}).get("display_phone_number") or value.get("metadata", {}).get("phone_number_id")
         
         # CASE 1: Standard Text Message
         if msg_type == "text":

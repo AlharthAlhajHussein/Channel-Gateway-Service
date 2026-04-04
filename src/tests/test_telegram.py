@@ -4,7 +4,7 @@ from main import app
 from helpers.config import settings
 
 # Override settings for testing
-settings.telegram_secret_token = "test_telegram_secret_888"
+settings.telegram_webhook_secret = "test_telegram_secret_888"
 
 client = TestClient(app)
 
