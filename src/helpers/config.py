@@ -17,25 +17,25 @@ class Settings(BaseSettings):
     app_version: str = "1.0.0"
     
     # Redis settings
-    redis_password: Optional[str] = None
+    redis_password: str | None = None
     redis_host: str = "localhost"
     redis_port: int = 6379
     
     # API URLs to other services (CORE Platform API) 
-    core_platform_api_url: str = "http://localhost:8004"
-    core_platform_api_key: str = "12345"    # Internal secret to authenticate with your Core API
+    core_platform_api_url: str | None = None
+    core_platform_api_key: str | None = None    # Internal secret to authenticate with your Core API
     
     # Google Cloud settings
     gcp_project_id: str = "agents-platform-490417"
     
     # WhatsApp settings
-    whatsapp_verify_token: str = "your_custom_verify_token_here"
-    whatsapp_app_secret: str = "your_meta_app_secret_here"
+    whatsapp_verify_token: str | None = None
+    whatsapp_app_secret: str | None = None
     
     # Telegram Setting
-    telegram_secret_token: Optional[str] = None
-    telegram_bot_token: Optional[str] = None
-    telegram_bot_identifier: Optional[str] = None
+    telegram_webhook_secret: str | None = None
+    # telegram_bot_token: Optional[str] = None
+    # telegram_bot_identifier: Optional[str] = None
     
     class Config:
         env_file = ENV_PATH
